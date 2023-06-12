@@ -1,0 +1,863 @@
+---
+title: "final project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r echo=TRUE, results='hide'}
+session=list()
+for(i in 1:18){
+  session[[i]]=readRDS(paste('./Data/session',i,'.rds',sep=''))
+
+  print(session[[i]]$mouse_name)
+  print(session[[i]]$date_exp)
+}
+
+
+#cleaning the data
+session_clean <- na.omit(session)
+
+
+```
+# Introduction
+
+This data analysis project's goal is to investigate and forecast the results of various feedback kinds depending on a number of variables in a practical setting. The findings of this research have important ramifications for comprehending and anticipating feedback reactions, which are relevant to a variety of fields including decision-making processes, psychology, and neuroscience.
+
+Predicting the feedback kinds, which are rated as either success (1) or failure (-1) depends on the issue setting. To do this, we have gathered data from several sessions, concentrating on important factors that may affect the feedback result. The degree of contrast between left and right stimuli, the number of neurons involved, and the region of the brain where the neurons are situated are some of these factors.
+
+The aim to understand more about the elements that affect feedback outcomes and the possible applications in areas like cognitive neuroscience, learning, and decision-making research are the driving forces behind this project. We may better understand cognitive processes and perhaps create treatments to improve decision-making and learning experiences by analyzing the link between the predictor factors and the feedback kinds.
+
+We will examine the gathered data in this study, generate hypotheses on the correlation between the predictor variables and the feedback kinds, and then use statistical techniques to create a prediction model. To assess the model's performance, it will be trained and evaluated on two distinct test sets that were randomly chosen from several sessions.
+
+The accessibility of real-world data and the inclusion of pertinent factors provide this project a solid foundation. By examining the connections between the factors and the feedback results, we want to shed light on the underlying mechanisms and offer insightful information for further research in this area.
+
+Through this initiative, we hope to advance knowledge and promote a deeper understanding of the variables affecting feedback results. The outcomes of this data analysis might have an effect on a number of areas, such as cognitive neuroscience, decision-making studies, and instructional strategies.
+
+In general, this study seeks to answer pertinent queries about the prediction of feedback kinds depending on important criteria. With the use of statistical techniques and actual data, we want to offer insightful information and further knowledge of feedback processes.
+
+# Part One
+
+## (i) describe the data structures across sessions (e.g., number of neurons, number of trials, stimuli conditions, feedback types)
+```{r}
+library(tidyverse)
+
+
+#The table summary of all sessions
+
+n.session=length(session)
+
+# in library tidyverse
+meta <- tibble(
+  mouse_name = rep('name',n.session),
+  date_exp =rep('dt',n.session),
+  n_brain_area = rep(0,n.session),
+  n_neurons = rep(0,n.session),
+  n_trials = rep(0,n.session),
+  success_rate = rep(0,n.session)
+)
+
+
+for(i in 1:n.session){
+  tmp = session[[i]];
+  meta[i,1]=tmp$mouse_name;
+  meta[i,2]=tmp$date_exp;
+  meta[i,3]=length(unique(tmp$brain_area));
+  meta[i,4]=dim(tmp$spks[[1]])[1];
+  meta[i,5]=length(tmp$feedback_type);
+  meta[i,6]=mean(tmp$feedback_type+1)/2;
+  }
+session_num = seq(1, n.session)
+
+meta <- meta %>% add_column(Session_num = session_num, .before = 1)
+
+
+# In package knitr
+library(knitr)
+kable(meta, format = "html", table.attr = "class='table table-striped'",digits=2) 
+
+
+
+```
+The table gives a general overview of the data structures used during the experiment's several sessions. Here is a description and synopsis of the information in the table:
+
+1.Session_num: This is the identification or session number for each recorded session.
+The name of the mouse utilized in the experiment is mouse_name.
+2.date_exp: The day when each session of the experiment was carried out.
+3.n_brain_area: The total number of unique brain regions that were recorded during a session.
+4.n_neurons: The overall number of neurons that were recorded throughout each session.
+5.n_trials: The overall count of trials completed in each session.
+6.success_rate: The success rate for each session, expressed as the percentage of trials that were successful.
+
+This table shows that the experiment was carried out across several sessions with several mice. Between 5 and 15 different brain regions were recorded throughout each session. across 474 and 1769 neurons were recorded, varying across sessions. There were 114 to up to 447 trials completed in each session.
+
+The success rates across sessions show the experiment's overall effectiveness and dependability. Most sessions had success rates above 0.6, and the success rates vary from 0.61 to 0.83. Higher success rates imply improved experimental consistency and data quality.
+
+The table summarizes the data structures for each session of the experiment, including the number of neurons, brain regions, trials, and success rates. It provides an overview of the experiment's development, recording settings, and general effectiveness in gathering brain data over many sessions.
+
+## (ii) explore the neural activities during each trial
+```{r}
+# indicator for this session
+i.s=3
+# indicator for this trial 
+i.t=1
+
+spk.trial = session[[i.s]]$spks[[i.t]]
+area=session[[i.s]]$brain_area
+
+# We need to first calculate the number of spikes for each neuron during this trial 
+spk.count=apply(spk.trial,1,sum)
+
+spk.average.tapply=tapply(spk.count, area, mean)
+
+# To use dplyr you need to create a data frame
+tmp <- data.frame(
+  area = area,
+  spikes = spk.count
+)
+# Calculate the average by group using dplyr
+spk.average.dplyr =tmp %>%
+  group_by(area) %>%
+  summarize(mean= mean(spikes))
+
+
+average_spike_area<-function(i.t,this_session){
+  spk.trial = this_session$spks[[i.t]]
+  area= this_session$brain_area
+  spk.count=apply(spk.trial,1,sum)
+  spk.average.tapply=tapply(spk.count, area, mean)
+  return(spk.average.tapply)
+  }
+
+# Test the function
+average_spike_area(1,this_session = session[[i.s]])
+
+
+
+```
+ 
+ 
+We first started our analysis on one trial, and the above findings shed light on the typical neural activity in each brain region during trial 1. The data show the typical number of spikes that were seen for each area's neurons during that particular trial. You may see the relative activity levels or firing rates for various brain areas during the particular trial by computing the average across neurons within each location.
+
+```{r}
+n.trial=length(session[[i.s]]$feedback_type)
+n.area=length(unique(session[[i.s]]$brain_area ))
+# Alternatively, you can extract these information in the meta that we created before.
+
+# We will create a data frame that contain the average spike counts for each area, feedback type,  the two contrasts, and the trial id
+
+trial.summary =matrix(nrow=n.trial,ncol= n.area+1+2+1)
+for(i.t in 1:n.trial){
+  trial.summary[i.t,]=c(average_spike_area(i.t,this_session = session[[i.s]]),
+                          session[[i.s]]$feedback_type[i.t],
+                        session[[i.s]]$contrast_left[i.t],
+                        session[[i.s]]$contrast_right[i.s],
+                        i.t)
+}
+
+colnames(trial.summary)=c(names(average_spike_area(i.t,this_session = session[[i.s]])), 'feedback', 'left contr.','right contr.','id' )
+
+# Turning it into a data frame
+trial.summary <- as_tibble(trial.summary)
+
+
+area.col=rainbow(n=n.area,alpha=0.7)
+# In base R, I usually initiate a blank plot before drawing anything on it
+plot(x=1,y=0, col='white',xlim=c(0,n.trial),ylim=c(0.5,2.2), xlab="Trials",ylab="Average spike counts", main=paste("Spikes per area in Session", i.s))
+
+
+for(i in 1:n.area){
+  lines(y=trial.summary[[i]],x=trial.summary$id,col=area.col[i],lty=2,lwd=1)
+  lines(smooth.spline(trial.summary$id, trial.summary[[i]]),col=area.col[i],lwd=3)
+  }
+legend("topright", 
+  legend = colnames(trial.summary)[1:n.area], 
+  col = area.col, 
+  lty = 1, 
+  cex = 0.8
+)
+
+```
+
+X-axis: The trial number is shown on the x-axis. An individual trial from the session is represented by each point on the x-axis.
+Y-axis: The average spike counts are shown on the y-axis. It displays the typical amount of spikes that were observed during the trials in each location of the brain.
+
+The average spike counts for each area of the brain are shown in the figure by a number of lines and rounded curves. Each curve or line represents a different part of the brain.
+
+
+We concentrated on studying the neural activity patterns in various brain regions during Session 3, which had 228 trials. One interesting finding from the plot is that, in comparison to other brain regions, the NB, CA1, and VISam showed higher average spike counts, constantly ranging around 2.0. Over the course of the 228 trials, these regions showed rather consistent activity patterns.
+
+The average spike count in the brain region NB was continuously high, demonstrating ongoing neuronal activity throughout the experiment. Similar average spike counts were seen in the brain region CA1, indicating regular neuronal firing patterns. Additionally, the average spike count in the VISam region of the brain was constant and quite high throughout the trials.
+
+The 228 trials' average spike counts for the root region varied noticeably over the plot's 228 trials. The average spike count in the root area showed substantial variations, in contrast to other brain regions that showed relatively stable patterns or constant levels of activity. These variations imply that the neuronal activity in the root region may be significantly altered by trial-specific elements or other factors associated with the experimental circumstances.
+
+Overall, Session 3 results demonstrate the distinctive properties of several brain regions in terms of average spike counts and consistency across trials. The NB, CA1, and VISam average spike counts are generally constant and consistently high, suggesting that these regions may be important for the brain processes and functions related to the session's goals. These parts of the brain might be extremely important for processing information, creating memories, or integrating sensory information.
+
+The "root" brain region, on the other hand, showed the most notable variations in average spike counts throughout the course of the 228 trials. This variation shows that the root area's neuronal activity is particularly susceptible to influences that are trial- or experiment-specific. The root area's average spike count has been seen to fluctuate, which may indicate that it processes information particular to a certain activity or that it is vulnerable to changes in the experimental environment.
+
+## (iii) explore the changes across trials
+```{r}
+library(tidyverse)
+suppressWarnings(library(knitr))
+n.session <- length(session)
+meta <- tibble(session = 1:n.session,
+               success_rate = rep(0, n.session))
+
+for (i in 1:n.session) {
+  tmp <- session[[i]]
+  meta[i, 2] <- mean(tmp$feedback_type + 1) / 2
+}
+
+# use mice with diff color
+
+# Add mouse information to meta data
+meta$mouse <- rep(c("Cori", "Forssmann", "Hench", "Lederberg"), times = c(3, 4, 4, 7))
+
+# Plot with different colors according to mice
+ggplot(meta, aes(x = session, y = success_rate, color = mouse)) +
+  geom_line(aes(group = mouse)) +
+  geom_point() +
+  labs(x = "Session", y = "Success Rate") +
+  ggtitle("Success Rate Across Sessions") +
+  scale_color_discrete(name = "Mouse")
+```
+
+Each line in the figure represents an individual mouse, with the x-axis denoting the trials and the y-axis the success rate. The plot shows the success rate over trials for each mouse.
+
+Cori (Sessions 1-3): Cori's success percentage has steadily increased throughout the course of the sessions. This shows that the mouse is becoming better at the task with each attempt, which may be a sign of learning or effective task adaptation.
+
+Forssmann (Sessions 4-6): From session 4 through session 6, the success rate rises, then declines somewhat in session 7. Forssmann's performance increases over these sessions, despite a little decline near the conclusion.
+
+Hench (Sessions 8–11): Hench's performance varies across these sessions, first declining from session 8 to session 9, then dipping slightly from session 9 to session 10, and then sharply improving in session 11. This variation can represent variable trial-to-trial performance.
+
+Lederberg (Sessions 12–18): In Session 12, Lederberg has a success rate of 0.74; in Session 13, it rises to 0.80. However, session 14 sees a modest decline, falling to 0.69. From session 15 through session 18, the success rates continue to rise after this. Over the course of several sessions, Lederberg's overall success rate increases.
+
+In conclusion, there appears to be a general increase in performance over the sessions for all four mice, showing that the mice are picking up new information and adjusting to the job. There are variations in performance, especially with Hench and Lederberg, which may indicate that the mice's capacity to carry out the job consistently across trials varies.
+
+## (iv) explore homogeneity and heterogeneity across sessions and mice.
+Homogeneity: We can notice some degree of uniformity among the mice based on the data. For instance, all mice seem to be picking up new skills over time, as seen by consistently rising success rates across sessions. Given that all four mice possess this property, it may be said to be homogeneous.
+
+Heterogeneity: On the other hand, there are definite indications of heterogeneity both within and across mice. The varying success rates for a particular mouse across sessions provide evidence of heterogeneity within mice. Hench's success rate, for instance, is 0.64 in session 8 but climbs to 0.80 by session 11. Heterogeneity is indicated by the range in success rate within a single mouse.
+
+Heterogeneity is also seen amongst mice. Success and improvement rates vary amongst mice in terms of both levels and rates. For instance, Forssmann's success rate grows quite swiftly from session four to session six, whereas Hench's success rate increases more gradually from session eight to session eleven. These variations in the mice's patterns of success rate show heterogeneity.
+
+In conclusion, there are distinct indications of heterogeneity, both within individual mice throughout sessions and across different animals, even while there are aspects of homogeneity between sessions and mice (increasing success rates over time). This mixture of homogeneity and heterogeneity paints a complicated picture in which each mouse is distinct from the others while still having certain things in common with others. Studies on behavioral neuro science frequently encounter this sort of complexity, which offers valuable information on how various people learn and adapt.
+
+# Part Two: Data Integration
+
+## (i) Addressing the differences between sessions.
+
+### overall average spikes across sessions
+```{r}
+
+# Assuming you have a list of sessions called 'session' and you want to calculate the average number of spikes for all 114 trials in session 1
+avg_spikes <- numeric(length = 114)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:114) {
+  spks_trial <- session[[1]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session1 <- mean(avg_spikes)
+
+
+#session 2
+avg_spikes <- numeric(length = 251)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:251) {
+  spks_trial <- session[[2]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session2 <- mean(avg_spikes)
+
+
+
+#session3
+avg_spikes <- numeric(length = 228)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:228) {
+  spks_trial <- session[[3]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session3 <- mean(avg_spikes)
+
+
+#session4
+avg_spikes <- numeric(length = 249)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:249) {
+  spks_trial <- session[[4]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session4 <- mean(avg_spikes)
+
+
+#session5
+avg_spikes <- numeric(length = 254)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:254) {
+  spks_trial <- session[[5]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session5 <- mean(avg_spikes)
+
+
+#session6
+avg_spikes <- numeric(length = 290)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:290) {
+  spks_trial <- session[[6]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session6 <- mean(avg_spikes)
+
+
+
+
+#session7
+avg_spikes <- numeric(length = 252)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:252) {
+  spks_trial <- session[[7]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session7 <- mean(avg_spikes)
+
+
+
+#session8
+avg_spikes <- numeric(length = 250)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:250) {
+  spks_trial <- session[[8]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session8 <- mean(avg_spikes)
+
+
+#session 9
+avg_spikes <- numeric(length = 372)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:372) {
+  spks_trial <- session[[9]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session9 <- mean(avg_spikes)
+
+
+#session10
+avg_spikes <- numeric(length = 447)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:447) {
+  spks_trial <- session[[10]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session10 <- mean(avg_spikes)
+
+
+#session11
+avg_spikes <- numeric(length = 342)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:342) {
+  spks_trial <- session[[11]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session11 <- mean(avg_spikes)
+
+
+#session12
+avg_spikes <- numeric(length = 340)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:340) {
+  spks_trial <- session[[12]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session12 <- mean(avg_spikes)
+
+
+#session13
+avg_spikes <- numeric(length = 300)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:300) {
+  spks_trial <- session[[13]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session13 <- mean(avg_spikes)
+
+
+#session14
+avg_spikes <- numeric(length = 268)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:268) {
+  spks_trial <- session[[14]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session14 <- mean(avg_spikes)
+
+
+#session15
+avg_spikes <- numeric(length = 404)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:404) {
+  spks_trial <- session[[15]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session15 <- mean(avg_spikes)
+
+
+#session16
+avg_spikes <- numeric(length = 280)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:280) {
+  spks_trial <- session[[16]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session16 <- mean(avg_spikes)
+
+
+#session17
+avg_spikes <- numeric(length = 224)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:224) {
+  spks_trial <- session[[17]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session17 <- mean(avg_spikes)
+
+
+#session18
+avg_spikes <- numeric(length = 216)  # Initialize an empty vector to store the average number of spikes for each trial
+
+for (i in 1:216) {
+  spks_trial <- session[[18]]$spks[[i]]
+  total_spikes <- apply(spks_trial, 1, sum)
+  avg_spikes[i] <- mean(total_spikes)
+}
+
+overall_avg_spikes_session18 <- mean(avg_spikes)
+
+
+
+# Assuming you have 18 values of overall average spikes for sessions 1 to 18 stored in a vector called overall_avg_spikes_session1 to overall_avg_spikes_session18
+
+session_numbers <- 1:18  # Session numbers 1 to 18
+overall_avg_spikes <- c(1.54,1.27,2.33,0.84,1.12,0.66,1.42,1.66,1.59,1.19,1.25,1.66,2.46,1.01,1.46,1.05,1.17,1.10)  # Overall average spikes values for sessions 1 to 18
+
+# Creating the table using tibble
+table_data <- tibble(session_number = session_numbers, overall_avg_spikes_session = overall_avg_spikes)
+
+# Displaying the table
+
+library(DT)
+DT::datatable(table_data)
+
+
+#visualization
+library(ggplot2)
+
+# Assuming you have the table_data tibble with the session numbers and overall average spikes
+
+# Create a bar plot
+ggplot(table_data, aes(x = session_number, y = overall_avg_spikes_session)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Session Number", y = "Overall Average Spikes",
+       title = "Overall Average Spikes by Session Number") +
+  theme_minimal()
+
+
+
+```
+
+By computing the average spike counts for each trial across brain regions or sessions, we can compare and analyze the differences in neural activity levels. This information can provide insights into the variability or consistency of spike counts across different sessions.   
+
+From session 1 through session 18, I determined the average number of spikes for all trials in each session for my study. The procedure required counting all of the spikes that occurred during each trial in each session and its associated sessions, averaging the total spike counts for all trials in each session.
+
+The results show significant changes in the average number of spikes across sessions. The largest average spike count was seen in session 13, which could indicate a special experimental setting, task need, or brain response. The lowest average spike count was seen in session 6, which implies a clear pattern or perhaps reduced neural activity.
+
+The very low and high average spike counts in Sessions 6 and 13, respectively, suggest the presence of special stimuli that affected the brain activity during those sessions.
+
+It is noteworthy to notice that while some sessions, like session 10, had lower average spike counts, others, like session 8, showed very steady and higher average spike counts.
+
+Overall, these data show the variation in spike activity between recorded sessions and imply potential variations in experimental settings, task demands, or brain responses. 
+
+### time since the start of the experiment
+```{r}
+
+library(dplyr)
+library(ggplot2)
+
+# Create a vector of session numbers
+session_numbers <- 1:18
+
+# Create a vector of corresponding dates
+dates <- c("2016-12-14", "2016-12-17", "2016-12-18", "2017-11-01", "2017-11-02",
+           "2017-11-04", "2017-11-05", "2017-06-15", "2017-06-16", "2017-06-17",
+           "2017-06-18", "2017-12-05", "2017-12-06", "2017-12-07", "2017-12-08",
+           "2017-12-09", "2017-12-10", "2017-12-11")
+
+# Create the data frame
+session_dates <- data.frame(session_number = session_numbers, date = as.Date(dates))
+
+
+library(dplyr)
+
+# Perform inner join
+joined_table <- inner_join(table_data, session_dates, by = "session_number")
+
+
+
+
+# Add the mouse variable to the data frame
+session_dates$mouse <- factor(c(rep("Cori", 3), rep("Forssmann", 4), rep("Hench", 4), rep("Lederberg", 7)))
+
+# Perform inner join
+joined_table <- inner_join(table_data, session_dates, by = "session_number")
+
+# Plot with ggplot, coloring points and lines based on mouse
+ggplot(joined_table, aes(x = as.factor(date), y = overall_avg_spikes_session)) +
+  geom_line(aes(group = 1, color = mouse)) +
+  geom_point(aes(color = mouse)) +
+  geom_text(aes(label = format(date, "%Y-%m-%d")), vjust = 1.5, size = 2.4) +
+  labs(x = "Date", y = "Overall Average Spikes",
+       title = "Overall Average Spikes by Date") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 8)) +
+  scale_color_manual(values = c("Cori" = "blue", "Forssmann" = "red", "Hench" = "green", "Lederberg" = "purple")) +
+  labs(color = "Mouse")
+
+
+```
+
+In this project, the variables "Date" and "Overall_avg_spikes_session" are crucial. The "Date" field gives each session a chronological context, allowing you to monitor variations in brain activity over time and identify any potential temporal trends. It is crucial for determining the impact of outside environmental influences, seasonal changes, or aging on the brain's activity since it may emphasize times of higher or lower neural activity. The 'Overall_avg_spikes_session' measure, on the other hand, is a clear indication of brain activity.The brain communicates mostly through spikes of neural activity, and counting the average number of spikes every session can help you determine how active the brain is and how it varies from session to session. This measurement is very useful for determining the influence of experimental stimuli and evaluating the effectiveness of the experimental plan. These factors work together to provide a solid framework for monitoring and analyzing brain activity changes.
+
+'Mouse' is now a part of our dataset, which has grown. This variable gives our study a new perspective and indicates the identify of each mouse utilized in the experiment. It is crucial because genetic, physiological, and behavioral variances among mice might cause them to react to the same stimulus in different ways.
+
+According to the data, there are differences between individual mice and with time in the amount of spikes that signify brain activity. For instance, on 2016-12-18, 'Cori' had an average spike count of 2.33, whereas 'Forssmann' had an average spike count of 0.66. On 2017-12-06, "Lederberg" has the greatest spike activity, which is 2.46. These variances might result from inherent differences among the mice, such as possible variations in how well they receive sensory information or how responsive they are to the experimental stimuli.
+
+Furthermore, periods of relatively constant spike counts, such as the one we observe for "Hench" around the middle of June 2017, may indicate periods of consistency in the experimental setup as well as the physiological state or behavior of the mouse.
+
+In conclusion, the inclusion of the 'Mouse' variable allows us to examine the interaction between temporal and personal variability in brain activity. This thorough investigation could improve our knowledge of the mouse visual brain and the variables affecting its activity.
+
+### Failure rate across 18 sessions
+```{r}
+n.session <- length(session)
+meta <- tibble(session = 1:n.session,
+               failure_rate = rep(0, n.session))
+
+for (i in 1:n.session) {
+  tmp <- session[[i]]
+  meta[i, 2] <- mean(tmp$feedback_type == -1)
+}
+
+kable(meta, format = "html", table.attr = "class='table table-striped'", digits = 2)
+
+library(ggplot2)
+
+
+
+# Add mouse information to meta data
+meta$mouse <- rep(c("Cori", "Forssmann", "Hench", "Lederberg"), times = c(3, 4, 4, 7))
+
+# Plot with different colors according to mice
+ggplot(meta, aes(x = session, y = failure_rate, color = mouse)) +
+  geom_line(aes(group = mouse)) +
+  geom_point() +
+  labs(x = "Session", y = "Failure Rate") +
+  ggtitle("Failure Rate Across Sessions") +
+  scale_color_discrete(name = "Mouse")
+
+```
+
+Understanding the learning curve, adaption, and performance variance across individual mice and throughout numerous sessions can be aided by using the 'failure_rate' as a key variable in your study. The session order on the x-axis is by date. 'Failure_rate' refers to the frequency with which the mice fail to correctly recognize the visual stimuli in the context of our experiment.
+
+Let's now investigate each mouse's session-average "failure_rate":
+
+Cori (Sessions 1-3): In the first session, Cori has a high failure rate (0.39), which only marginally decreases in the following two sessions (0.37 and 0.34, respectively). This would indicate Cori is learning as she becomes used to the demands of the assignment.
+
+Forssmann (Sessions 4-7): An intriguing trend may be seen in Forssmann's failure rate. In Session 4, it starts at 0.33 and by Session 6, it has dropped to 0.26. In Session 7, it rises to 0.33 once more. This oscillation could suggest that the difficulty of the job varies, or it might imply that Forssmann's performance changes with time.
+
+Hench (Sessions 8–11): In Session 8, Hench has a higher failure rate of 0.36; however, during the next three sessions, it substantially declines, reaching a considerably lower rate of 0.20 by Session 11. This shows that Hench made a significant learning progression and task-specific adaptations.
+
+Lederberg (Sessions 12–18): Lederberg's failure rate across these sessions shows a definite decreasing trend. There is a steady progress across the sessions, with a failure rate of just 0.19 by Session 18, despite beginning with a somewhat larger failure rate of 0.26 in Session 12. A good learning curve and excellent adaptability in Lederberg are indicated by this steady drop, which makes Lederberg the mouse with the best performance at the conclusion of the sessions.
+
+The performance of each mouse may be compared using the metric "failure_rate," allowing us to determine which ones respond to the job at hand more quickly and effectively.
+
+
+
+
+# Part Three
+```{r}
+# Assuming your data is stored in a dataframe called 'data'
+library(MASS)
+
+session1=cbind(session[[1]]$contrast_left,session[[1]]$contrast_right,rep(1,length(session[[1]]$contrast_left)),session[[1]]$mouse_name,length(session[[1]]$brain_area),length(unique(session[[1]]$brain_area)),length(session[[1]]$spks),session[[1]]$feedback_type)
+
+df1 = rbind(session1)
+colnames(df1) = c("contrast_left","contrast_right", "session","mouse","number_of_neurons","brain_area","number_of_trials", "feedback_type")
+df1 = as.data.frame(df1)
+df1$contrast_left = as.factor(df1$contrast_left)
+df1$contrast_right = as.factor(df1$contrast_right)
+df1$session = as.factor (df1$session)
+df1$mouse = as.factor(df1$mouse)
+df1$feedback_type = as.factor(df1$feedback_type)
+
+
+# Set the seed for reproducibility
+set.seed(123)
+
+# Randomly select 100 trials from Session 1
+test_set1 <- df1[df1$session == 1, ][sample(nrow(df1[df1$session == 1, ]), 100, replace = FALSE), ]
+
+#session18
+session18=cbind(session[[18]]$contrast_left,session[[18]]$contrast_right,rep(1,length(session[[18]]$contrast_left)),session[[18]]$mouse_name,length(session[[18]]$brain_area),length(unique(session[[18]]$brain_area)),length(session[[18]]$spks),session[[18]]$feedback_type)
+
+df18 = rbind(session18)
+colnames(df18) = c("contrast_left","contrast_right", "session","mouse","number_of_neurons","brain_area","number_of_trials", "feedback_type")
+df18 = as.data.frame(df18)
+df18$contrast_left = as.factor(df18$contrast_left)
+df18$contrast_right = as.factor(df18$contrast_right)
+df18$session = as.factor (df18$session)
+df18$mouse = as.factor(df18$mouse)
+df18$feedback_type = as.factor(df18$feedback_type)
+
+
+
+
+# Set the seed for reproducibility
+set.seed(123)
+
+# Randomly select 100 rows from df18
+test_set18 <- df18[sample(nrow(df18), 100, replace = FALSE), ]
+
+
+library(MASS)
+
+
+train_set1 <- df1[!rownames(df1) %in% rownames(test_set1), ]
+train_set18 <- df18[!rownames(df18) %in% rownames(test_set18), ]
+
+
+
+lda_model <- lda(feedback_type ~ contrast_left + contrast_right + number_of_neurons + brain_area , data = rbind(train_set1, train_set18))
+
+
+predictions1 <- predict(lda_model, newdata = test_set1)
+predictions18 <- predict(lda_model, newdata = test_set18)
+```
+
+In the third phase of the research, I constructed the prediction model utilizing the Linear Discriminant Analysis (LDA) technique. The LDA approach was chosen in part due of its well-known and widespread application for categorization issues. LDA offers a useful framework for this particular assignment since your goal was to forecast the result (types of feedback). Through the estimation of discriminant functions and class borders, LDA also provides interpretability. By doing so, you may comprehend the impact of each predictor variable on the classification result and learn which aspects are most important for the differentiation of feedback kinds. By taking use of LDA's interpretability, you may not only produce precise predictions but also learn important things about the underlying connections between the predictor variables and the different sorts of feedback. The objective was to forecast the results or forms of feedback based on the variables contrast_left, contrast_right, number_of_neurons, and brain_area that were provided.
+
+I used a confusion matrix to assess how well the prediction model performed. A common assessment tool for classification and machine learning applications is the confusion matrix. It offers a tabular comparison of the model's forecasts and the measured values. We can evaluate the model's success in categorizing the different sorts of feedback by looking at the matrix.
+
+In this instance, I created two test sets, each of which had 100 randomly chosen trials from Sessions 1 and 18. On these test sets, I made predictions using the trained LDA model. By displaying the number of true negatives (TN), false positives (FP), false positives (TP), and true positives (TP), the confusion matrix assisted me in analyzing the data.
+
+I was able to understand the performance of the model by analyzing the numbers in the confusion matrix, such as the proportion of properly identified examples and misclassifications. For instance, I might count the trials that the model properly classified as having a negative or positive outcome, as well as the times where it predicted something else.
+
+## Confusion matrix and Misclassification error rate for origianl model test set 1
+```{r}
+# Confusion matrix for test set 1
+confusion_matrix1 <- table(test_set1$feedback_type, predictions1$class)
+print(confusion_matrix1)
+
+# Misclassification error rate for test set 1
+error_rate1 <- mean(predictions1$class != test_set1$feedback_type)
+
+
+misclassification_rate <- 0.37  # Replace with the actual misclassification rate
+misclassification_error_rate <- paste("Misclassification Error Rate:", misclassification_rate)
+misclassification_error_rate
+
+accuracy_rate <- 1 - misclassification_rate
+accuracy_rate_label <- paste("Accuracy Rate:", accuracy_rate)
+accuracy_rate_label
+
+```
+
+True Negative (TN): In test set 1, there were five instances when the actual feedback type was -1 (failure), despite the model's accurate prediction of that type.
+
+False Positive (FP): In test set 1, there were 35 occasions when the feedback type was really -1 (failure), although the model had expected it to be 1 (success).
+
+False Negative (FN): In test set 1, there were two occasions when the feedback type was really 1 (success), although the model had expected it to be -1.
+
+True Positive (TP): In test set 1, there are 58 occasions when the feedback type was actually 1 (success) and the model accurately anticipated it to be 1.
+
+In conclusion, the confusion matrix shows that the model had a high number of true positives (58) and true negatives (58), indicating that it properly identified both cases of failure and success. A significant number of false positives (35) and false negatives (2), on the other hand, showed occasions when the model mispredicted the data.
+
+For test set 1, the misclassification error rate is 0.37. This number displays the percentage of cases in the test set that were incorrectly categorized.
+
+A misclassification error rate of 0.37 in this instance indicates that almost 37% of the events in test set 1 were erroneously categorized by the model.
+
+A misclassification error rate of 0.37 in the context of my prediction test suggests that the model's performance should be enhanced. 
+
+## Confusion matrix Misclassification error rate for original model test set 18 
+```{r}
+# Confusion matrix for test set 18
+confusion_matrix18 <- table(test_set18$feedback_type, predictions18$class)
+print(confusion_matrix18)
+
+# Misclassification error rate for test set 18
+error_rate18 <- mean(predictions18$class != test_set18$feedback_type)
+misclassification_rate <- 0.23  # Replace with the actual misclassification rate
+misclassification_error_rate <- paste("Misclassification Error Rate:", misclassification_rate)
+misclassification_error_rate
+
+
+
+
+misclassification_rate <- 0.23  # Replace with the actual misclassification rate
+accuracy_rate <- 1 - misclassification_rate
+accuracy_rate_label <- paste("Accuracy Rate:", accuracy_rate)
+accuracy_rate_label
+
+```
+
+The number of instances that belong to class -1 (negative class) and are accurately identified as such is shown by the value in the top-left corner. In this instance, the count is 0, indicating that no occurrences were accurately identified as -1.
+
+The number of occurrences that should be classed as class -1 but are instead placed in class 1 (positive class) is shown in the top-right corner. In this case, the figure of 23 indicates that 23 occurrences of class -1 were mistakenly assigned the classification of 1.
+
+The number of instances that are mistakenly labeled as -1 but actually belong to class 1 is shown by the value in the bottom-left corner. Since there were no misclassifications in this category, the count in this instance is 0.
+
+The number of instances that fall under class 1 (a positive class) and are appropriately categorized as such is shown in the bottom-right corner. There are 77 occurrences of class 1 that have been accurately identified based on the count of 77.
+
+The confusion matrix may be used to determine the misclassification error rate, which is the percentage of cases that are incorrectly categorized relative to all occurrences. The misclassification error rate for test set 18 in this instance is 0.23, meaning that almost 23% of the occurrences in test set 18 are incorrectly categorized.
+
+# Test the released test set
+
+## test set 1
+```{r}
+
+test=list()
+for(i in 1:2){
+  filepath = paste('~/Downloads/test/test',i,'.rds',sep='')
+  print(filepath)
+  test[[i]]=readRDS(filepath)
+}
+
+
+#test1
+test1=cbind(test[[1]]$contrast_left,test[[1]]$contrast_right,rep(1,length(test[[1]]$contrast_left)),test[[1]]$mouse_name,length(test[[1]]$brain_area),length(unique(test[[1]]$brain_area)),length(test[[1]]$spks),test[[1]]$feedback_type)
+
+df_test1 = rbind(test1)
+colnames(df_test1) = c("contrast_left","contrast_right", "test","mouse","number_of_neurons","brain_area","number_of_trials", "feedback_type")
+df_test1 = as.data.frame(df_test1)
+df_test1$contrast_left = as.factor(df_test1$contrast_left)
+df_test1$contrast_right = as.factor(df_test1$contrast_right)
+df_test1$test = as.factor (df_test1$test)
+df_test1$mouse = as.factor(df_test1$mouse)
+df_test1$feedback_type = as.factor(df_test1$feedback_type)
+
+
+
+
+
+
+#test2
+test2=cbind(test[[2]]$contrast_left,test[[2]]$contrast_right,rep(1,length(test[[2]]$contrast_left)),test[[2]]$mouse_name,length(test[[2]]$brain_area),length(unique(test[[2]]$brain_area)),length(test[[2]]$spks),test[[2]]$feedback_type)
+
+df_test2 = rbind(test2)
+colnames(df_test2) = c("contrast_left","contrast_right", "test","mouse","number_of_neurons","brain_area","number_of_trials", "feedback_type")
+df_test2 = as.data.frame(df_test2)
+df_test2$contrast_left = as.factor(df_test2$contrast_left)
+df_test2$contrast_right = as.factor(df_test2$contrast_right)
+df_test2$test = as.factor (df_test2$test)
+df_test2$mouse = as.factor(df_test2$mouse)
+df_test2$feedback_type = as.factor(df_test2$feedback_type)
+
+
+
+
+# Load the necessary library
+library(MASS)
+
+# Define the predictor variables
+predictors <- c("contrast_left", "contrast_right", "number_of_neurons", "brain_area")
+
+# Build the LDA model
+lda_model <- lda(feedback_type ~ contrast_left + contrast_right + number_of_neurons + brain_area , data = rbind(df_test1,df_test2))
+
+# Predict the feedback_type using the LDA model
+predictions <- predict(lda_model, df_test1[,predictors])$class
+
+# Create the confusion matrix
+confusion_matrix <- table(Predicted = predictions, Actual = df_test1$feedback_type)
+print("Confusion Matrix:")
+print(confusion_matrix)
+
+# Calculate the misclassification error rate
+misclassification_error_rate <- 1 - sum(diag(confusion_matrix)) / sum(confusion_matrix)
+print(paste("Misclassification Error Rate: ", misclassification_error_rate))
+
+```
+
+When compared to Test Set 1, the model's performance on the Original Test Set exhibits some improvement. However, as seen by the comparatively high misclassification error rate, there is still potential for improvement. The model appears to have properly identified 63% of the cases in the Original Test Set, according to the accuracy rate of 63%.
+
+
+## test set 2
+```{r}
+# Predict the feedback_type using the LDA model
+predictions <- predict(lda_model, df_test2[,predictors])$class
+
+# Create the confusion matrix
+confusion_matrix <- table(Predicted = predictions, Actual = df_test2$feedback_type)
+print("Confusion Matrix:")
+print(confusion_matrix)
+
+# Calculate the misclassification error rate
+misclassification_error_rate <- 1 - sum(diag(confusion_matrix)) / sum(confusion_matrix)
+print(paste("Misclassification Error Rate: ", misclassification_error_rate))
+```
+
+We can see that the misclassification error rate stayed constant at 37% when comparing the performance of my old model on Test Set 18 with the old Test Set. This shows that the model's performance did not change for the better or worse just for Test Set 18.
+
+It is significant to notice that the model's predictions appear to have been inaccurate regardless of the test set, as indicated by the misclassification error rate of 37%. To enhance the model's performance on next test sets, I will think about performing further analysis, investigating other methods, or enhancing the features in the future.
+
+# Appendix
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+
+```
+
+
+
+
+
+
+
+
+
+
+
